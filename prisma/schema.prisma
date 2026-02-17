@@ -1,0 +1,326 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================================
+// HOUSEHOLD & AUTHENTICATION
+// ============================================================================
+
+model Household {
+  id            String   @id @default(cuid())
+  name          String
+  passwordHash  String   // Simple password protection for household
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users           User[]
+  inventoryItems  InventoryItem[]
+  recipes         Recipe[]
+  mealPlans       MealPlan[]
+  shoppingLists   ShoppingList[]
+  mealConstraints MealConstraint[]
+  parItems        ParItem[]
+  categoryPars    CategoryPar[]
+
+  @@map("households")
+}
+
+// ============================================================================
+// USERS & PROFILES
+// ============================================================================
+
+model User {
+  id           String   @id @default(cuid())
+  householdId  String
+  name         String
+  email        String?  @unique
+  allergies    String[] // Array of allergy strings
+  dislikes     String[] // Array of disliked foods
+  preferences  String[] // Array of preference strings
+  isCook       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  household    Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  cookProfile  CookProfile?
+  mealAssignments MealAssignment[]
+  recipeRatings RecipeRating[]
+
+  @@map("users")
+}
+
+model CookProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  skillLevel         Int      // 1: Heat & eat, 2: Simple prep, 3: Full from-scratch
+  mealsPerWeek       Int      @default(0)
+  availableDays      String[] // Days available to cook
+  preferredEquipment String[] // Equipment they're comfortable using
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("cook_profiles")
+}
+
+// ============================================================================
+// INVENTORY SYSTEM
+// ============================================================================
+
+model InventoryItem {
+  id             String    @id @default(cuid())
+  householdId    String
+  name           String
+  upc            String?   // Optional barcode
+  preferredBrand String?
+  category       String    // produce, dairy, pantry, frozen, etc.
+  location       String    // pantry, fridge, freezer, dry storage
+  quantity       Float?    // Optional - can be boolean "have it"
+  unit           String?   // Optional unit
+  inStock        Boolean   @default(true)
+  dateAdded      DateTime  @default(now())
+  dateUpdated    DateTime  @updatedAt
+  notes          String?
+
+  household      Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, category])
+  @@index([householdId, location])
+  @@index([householdId, inStock])
+  @@map("inventory_items")
+}
+
+model ParItem {
+  id             String   @id @default(cuid())
+  householdId    String
+  name           String
+  preferredBrand String?
+  category       String
+  minQuantity    Float    @default(1)
+  isCategorical  Boolean  @default(false) // e.g., "2-3 types of crackers"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  household      Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, category])
+  @@map("par_items")
+}
+
+model CategoryPar {
+  id            String   @id @default(cuid())
+  householdId   String
+  name          String   // e.g., "grab-and-go lunches"
+  description   String?
+  minVariety    Int      @default(3) // e.g., 3 different items
+  rotationWeeks Int      @default(3) // e.g., 3-week rotation
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  household     Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  items         CategoryParItem[]
+
+  @@map("category_pars")
+}
+
+model CategoryParItem {
+  id             String   @id @default(cuid())
+  categoryParId  String
+  name           String
+  preferredBrand String?
+  createdAt      DateTime @default(now())
+
+  categoryPar    CategoryPar @relation(fields: [categoryParId], references: [id], onDelete: Cascade)
+
+  @@map("category_par_items")
+}
+
+// ============================================================================
+// RECIPE SYSTEM
+// ============================================================================
+
+model Recipe {
+  id                  String   @id @default(cuid())
+  householdId         String
+  name                String
+  instructions        String
+  complexityLevel     Int      @default(2) // 1, 2, or 3
+  prepTime            Int?     // Minutes
+  cookTime            Int?     // Minutes
+  seasons             String[] @default(["all"]) // spring, summer, fall, winter, all
+  tags                String[]
+  proteinType         String?
+  toddlerFriendly     Boolean  @default(false)
+  toddlerPortionNotes String?
+  source              String?  // cookbook, website, original
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  household           Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  ingredients         RecipeIngredient[]
+  equipment           RecipeEquipment[]
+  ratings             RecipeRating[]
+  mealAssignments     MealAssignment[]
+
+  @@index([householdId, complexityLevel])
+  @@index([householdId, proteinType])
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id          String   @id @default(cuid())
+  recipeId    String
+  name        String
+  quantity    Float?
+  unit        String?
+  isOptional  Boolean  @default(false)
+  category    String?
+  createdAt   DateTime @default(now())
+
+  recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@map("recipe_ingredients")
+}
+
+model RecipeEquipment {
+  id         String   @id @default(cuid())
+  recipeId   String
+  name       String
+  createdAt  DateTime @default(now())
+
+  recipe     Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@map("recipe_equipment")
+}
+
+model RecipeRating {
+  id         String   @id @default(cuid())
+  userId     String
+  recipeId   String
+  rating     String   // thumbs_up, thumbs_down, favorite
+  isFavorite Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe     Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@map("recipe_ratings")
+}
+
+// ============================================================================
+// MEAL PLANNING
+// ============================================================================
+
+model MealPlan {
+  id            String   @id @default(cuid())
+  householdId   String
+  weekStartDate DateTime // Monday of the week
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  household     Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  meals         MealAssignment[]
+
+  @@unique([householdId, weekStartDate])
+  @@map("meal_plans")
+}
+
+model MealAssignment {
+  id           String    @id @default(cuid())
+  mealPlanId   String
+  date         DateTime
+  mealType     String    // breakfast, lunch, dinner, snack
+  recipeId     String?
+  cookUserId   String?
+  notes        String?
+  isPrepared   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  mealPlan     MealPlan  @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  recipe       Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  cook         User?     @relation(fields: [cookUserId], references: [id], onDelete: SetNull)
+
+  @@index([mealPlanId, date])
+  @@map("meal_assignments")
+}
+
+model MealConstraint {
+  id             String   @id @default(cuid())
+  householdId    String
+  constraintType String   // freezer_only, pantry_only, etc.
+  dayOfWeek      Int      // 0-6 (Sunday-Saturday)
+  mealType       String   // breakfast, lunch, dinner, snack
+  createdAt      DateTime @default(now())
+
+  household      Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, dayOfWeek, mealType])
+  @@map("meal_constraints")
+}
+
+// ============================================================================
+// SHOPPING LISTS
+// ============================================================================
+
+model ShoppingList {
+  id           String           @id @default(cuid())
+  householdId  String
+  name         String?
+  status       String           @default("active") // active, completed, archived
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  household    Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  items        ShoppingListItem[]
+
+  @@index([householdId, status])
+  @@map("shopping_lists")
+}
+
+model ShoppingListItem {
+  id               String    @id @default(cuid())
+  shoppingListId   String
+  name             String
+  quantity         Float?
+  unit             String?
+  category         String?
+  isPurchased      Boolean   @default(false)
+  fromMealPlan     Boolean   @default(false)
+  fromParList      Boolean   @default(false)
+  inventoryItemId  String?   // Link to inventory for auto-add
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  shoppingList     ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+
+  @@index([shoppingListId, isPurchased])
+  @@map("shopping_list_items")
+}
+
+// ============================================================================
+// EQUIPMENT (Reference Data)
+// ============================================================================
+
+model Equipment {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String   // appliance, tool, cookware
+  createdAt   DateTime @default(now())
+
+  @@unique([name])
+  @@map("equipment")
+}
